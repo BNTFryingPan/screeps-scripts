@@ -1,93 +1,71 @@
-var roleHarvester = require('role.harvester')
-
-var roleBuilder = {
+var newBuilder = {
 
     /** @param {Creep} creep **/
     run: function(creep) {
-        var targetsb = creep.room.find(FIND_CONSTRUCTION_SITES);
-        if(targetsb.length) {
-            creep.memory.building = true;
-        } else {
-            //creep.say('no jobs');
-            fullConts = creep.room.find(FIND_STRUCTURES, {filter: (structure) => (structure.structureType == STRUCTURE_CONTAINER) && structure.store.getUsedCapacity() > 0});
-            //dest = creep.room.find(FIND_MY_SPAWNS, {filter: (structure) => (structure.structureType == STRUCTURE_SPAWN || structure.structureType == STRUCTURE_EXTENSION) && structure.store.getFreeCapacity() > 0});
-            dest = Game.spawns['Spawn1']
-            //console.log(dest)
-            if (dest.store.getFreeCapacity(RESOURCE_ENERGY) > 0) {
-                if (creep.store.getUsedCapacity(RESOURCE_ENERGY) == 0) {
-                    creep.say('collecting from containers')
-                    if (creep.withdraw(fullConts[0], RESOURCE_ENERGY) == ERR_NOT_IN_RANGE) {
-                        creep.moveTo(fullConts[0])
-                    }
-                } else {
-                    creep.say('putting in soawn')
-                    if (creep.transfer(dest, RESOURCE_ENERGY) == ERR_NOT_IN_RANGE) {
-                        creep.moveTo(dest)
-                    }
-                }
-            }
-            return;
+        //Get lists of sites of interest
+        var buildSites = creep.pos.findClosestByPath(FIND_CONSTRUCTION_SITES);
+        var harvestSites = creep.pos.findClosestByPath(FIND_SOURCES);
+        var storeSites = creep.room.find(FIND_STRUCTURES, {filter: (structure) => (structure.structureType == STRUCTURE_CONTAINER) && structure.store.getUsedCapacity() > 0});
+        var storeSitesNotFull = creep.room.find(FIND_STRUCTURES, {filter: (structure) => (structure.structureType == STRUCTURE_TOWER) && structure.store.getFreeCapacity() > 0});
+
+        //figure out what the creeps job should be
+        var hasEnergy = creep.store.getUsedCapacity(RESOURCE_ENERGY) > 0;
+        var areStoreSites = storeSites > 0;
+        var isHarvesting = creep.memory.harvest
+
+        // here we check if the creep is currently harvesting or collecting energy, once its full, we should stop
+        if (isHarvesting && creep.store.getFreeCapacity() == 0) {
+            creep.memory.harvest = false;
+            isHarvesting = false
         }
         
-		if (creep.memory.collect && creep.store.getFreeCapacity() == 0) {
-			creep.memory.collect = false;
-			creep.memory.build = true;
-			creep.say('build')
-		}
+        // lets actually figure out and do what we need to do
 
-	    if(creep.memory.building && creep.store[RESOURCE_ENERGY] == 0) {
-			creep.memory.building = false;
-			var targets = creep.room.find(FIND_STRUCTURES, {
-				filter: (structure) => {
-					return (structure.structureType == STRUCTURE_CONTAINER) && 
-							structure.store.getUsedCapacity(RESOURCE_ENERGY) > 0;
-				}
-			});
-			if(targets.length > 0) {
-				creep.memory.collect = true;
-				creep.memory.harvest = false
-				creep.say("Collect")
-			} else {
-				creep.memory.harvest = true;
-				creep.memory.collect = false;
-				creep.say('🔄 harvest');
-			}
-	    }
-	    if(!creep.memory.building && creep.store.getFreeCapacity() == 0) {
-			creep.memory.harvest = false;
-			creep.memory.collect = false;
-			creep.memory.building = true;
-	        creep.say('🚧 build');
-	    }
+        /* heres how this logic works:
+        If (are build sites, has energy, is not harvesting):
+            build
+        
+        if (are build sites, and are storage sites with avaliable energy) implies: could be harvesting (we want to take from storage if possible, its faster), and that we dont have energy
+            collect from storage
 
-	    if(creep.memory.building) {
-	        var targetsb = creep.room.find(FIND_CONSTRUCTION_SITES);
-            if(targetsb.length) {
-                if(creep.build(targetsb[0]) == ERR_NOT_IN_RANGE) {
-                    creep.moveTo(targetsb[0], {visualizePathStyle: {stroke: '#ffffff'}});
-                }
+        if (are build sites) implies: no energy, no storage sites with energy
+            harvest
+
+        if (not full storages > 0) implies: no build sites
+            if (has energy and not harvesting)
+                give energy to storage
+            else:
+                harvest
+
+        */
+
+        if (buildSites && hasEnergy && !isHarvesting) { // if there are things that need to be built, and the creep has energy, build it
+            if (creep.build(buildSites) == ERR_NOT_IN_RANGE) {
+                creep.moveTo(buildSites)//, {visualizePathStyle: {stroke: '#ffffff'}});
+            }
+        } else if (buildSites && areStoreSites) {
+            creep.memory.harvest = true;
+            if (creep.withdraw(storeSites, RESOURCE_ENERGY) == ERR_NOT_IN_RANGE) {
+                creep.moveTo(storeSites)//, {visualizePathStyle: {stroke: '#ffff00'}});
+            }
+        } else if (buildSites) {
+            creep.memory.harvest = true;
+            if (creep.harvest(harvestSites) == ERR_NOT_IN_RANGE) {
+                creep.moveTo(harvestSites)//, {visualizePathStyle: {stroke: '#ffaa00'}});
+            }
+        } else if (storeSitesNotFull.length > 0) {
+            if (hasEnergy && !isHarvesting) {
+                if (creep.transfer(storeSitesNotFull[0], RESOURCE_ENERGY) == ERR_NOT_IN_RANGE) {
+                    creep.moveTo(storeSitesNotFull[0])//, {visualizePathStyle: {stroke: "##ffaa00"}})
+                } 
             } else {
-                //creep.say('no jobs');
-                //roleHarvester.run(creep);
+                creep.memory.harvest = true;
+                if (creep.harvest(harvestSites) == ERR_NOT_IN_RANGE) {
+                    creep.moveTo(harvestSites)//, {visualizePathStyle: {stroke: '#ffaa00'}});
+                }
             }
-	    }
-	    else if (creep.memory.collect) {
-			var targets = creep.room.find(FIND_STRUCTURES, {
-				filter: (structure) => {
-					return (structure.structureType == STRUCTURE_CONTAINER) && 
-							structure.store.getUsedCapacity(RESOURCE_ENERGY) > 0;
-				}
-			});
-			if(creep.withdraw(targets[0], RESOURCE_ENERGY) == ERR_NOT_IN_RANGE) {
-				creep.moveTo(targets[0], {visualizePathStyle: {stroke: '#ffffff'}});
-			}
-		} else {
-	        var sources = creep.room.find(FIND_SOURCES);
-            if(creep.harvest(sources[0]) == ERR_NOT_IN_RANGE) {
-                creep.moveTo(sources[0], {visualizePathStyle: {stroke: '#ffaa00'}});
-            }
-	    }
-	}
-};
+        }
+    }
+}
 
-module.exports = roleBuilder;
+module.exports = newBuilder;
